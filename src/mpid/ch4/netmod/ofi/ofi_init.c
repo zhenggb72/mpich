@@ -682,6 +682,7 @@ static void set_sep_counters(int nic)
 
 int MPIDI_OFI_init_local(int *tag_bits)
 {
+    double t;
     int mpi_errno = MPI_SUCCESS;
 
     MPL_COMPILE_TIME_ASSERT(offsetof(struct MPIR_Request, dev.ch4.netmod) ==
@@ -757,8 +758,13 @@ int MPIDI_OFI_init_local(int *tag_bits)
     MPIDI_OFI_global.num_nics = 1;
 
     struct fi_info *prov = NULL;
+    t = MPI_Wtime();
     mpi_errno = MPIDI_OFI_find_provider(&prov);
     MPIR_ERR_CHECK(mpi_errno);
+    t = MPI_Wtime() - t;
+    if (t > MPIR_CVAR_CH4_CHECK_TIMING_THRESHOLD)
+        fprintf(stderr, "[%d] MPIDI_OFI_init_local-%s takes: %fs \n", MPIR_Process.rank,
+                "MPIDI_OFI_find_provider", t);
 
     /* init multi-nic and populates MPIDI_OFI_global.prov_use[] */
     mpi_errno = MPIDI_OFI_init_multi_nic(prov);

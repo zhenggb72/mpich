@@ -92,6 +92,16 @@ cvars:
         to prevent remote processes hanging if it has pending communication
         protocols, e.g. a rendezvous send.
 
+    - name        : MPIR_CVAR_CH4_CHECK_TIMING_THRESHOLD
+      category    : DEBUGGER
+      type        : int
+      default     : 1
+      class       : device
+      verbosity   : MPI_T_VERBOSITY_USER_BASIC
+      scope       : MPI_T_SCOPE_LOCAL
+      description : >-
+        Only report timing beyond this threshold
+
 === END_MPI_T_CVAR_INFO_BLOCK ===
 */
 
@@ -136,6 +146,15 @@ int MPIR_Init_impl(int *argc, char ***argv)
     mpi_errno = MPII_Init_thread(argc, argv, threadLevel, &provided, NULL);
 
     return mpi_errno;
+}
+
+#define CHECK_TIMING(f, str) \
+{ \
+    double t1 = MPI_Wtime(); \
+    f; \
+    double t = MPI_Wtime() - t1; \
+    if (t > MPIR_CVAR_CH4_CHECK_TIMING_THRESHOLD) \
+        fprintf(stderr, "[%d] %s takes: %fs \n", MPIR_Process.rank, str, t); \
 }
 
 int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
@@ -186,13 +205,13 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
     /**********************************************************************/
 
     MPIR_context_id_init();
-    MPIR_Typerep_init();
+    CHECK_TIMING(MPIR_Typerep_init(), "MPIR_Typerep_init");
     MPII_thread_mutex_create();
     MPII_init_request();
-    mpi_errno = MPIR_pmi_init();
+    CHECK_TIMING(mpi_errno = MPIR_pmi_init(), "MPIR_pmi_init");
     MPIR_ERR_CHECK(mpi_errno);
-    MPII_hwtopo_init();
-    MPII_nettopo_init();
+    CHECK_TIMING(MPII_hwtopo_init(), "MPII_hwtopo_init");
+    CHECK_TIMING(MPII_nettopo_init(), "MPII_nettopo_init");
     MPII_init_windows();
     MPII_init_binding_cxx();
 
@@ -202,13 +221,13 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
     mpi_errno = MPII_init_builtin_infos(argc, argv);
     MPIR_ERR_CHECK(mpi_errno);
 
-    mpi_errno = MPII_Coll_init();
+    CHECK_TIMING(mpi_errno = MPII_Coll_init(), "MPII_Coll_init");
     MPIR_ERR_CHECK(mpi_errno);
 
-    mpi_errno = MPIR_Group_init();
+    CHECK_TIMING(mpi_errno = MPIR_Group_init(), "MPIR_Group_init");
     MPIR_ERR_CHECK(mpi_errno);
 
-    mpi_errno = MPIR_Datatype_init_predefined();
+    CHECK_TIMING(mpi_errno = MPIR_Datatype_init_predefined(), "MPIR_Datatype_init_predefined");
     MPIR_ERR_CHECK(mpi_errno);
 
     if (MPIR_CVAR_DEBUG_HOLD) {
@@ -251,7 +270,8 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
         MPL_gpu_info.use_immediate_cmdlist = MPIR_CVAR_GPU_USE_IMMEDIATE_COMMAND_LIST;
         MPL_gpu_info.roundrobin_cmdq = MPIR_CVAR_GPU_ROUND_ROBIN_COMMAND_QUEUES;
 
-        int mpl_errno = MPL_gpu_init(debug_summary);
+        int mpl_errno;
+       	CHECK_TIMING(mpl_errno = MPL_gpu_init(debug_summary), "MPL_gpu_init");
         MPIR_ERR_CHKANDJUMP(mpl_errno != MPL_SUCCESS, mpi_errno, MPI_ERR_OTHER, "**gpu_init");
 
         int device_count, max_dev_id, max_subdev_id;
@@ -272,7 +292,7 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
         }
     }
 
-    mpi_errno = MPID_Init(required, &MPIR_ThreadInfo.thread_provided);
+    CHECK_TIMING(mpi_errno = MPID_Init(required, &MPIR_ThreadInfo.thread_provided), "MPID_Init");
     MPIR_ERR_CHECK(mpi_errno);
 
     /* The current default mechanism of MPIR Process Acquisition Interface is to
@@ -287,7 +307,7 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
      * add a config option to skip it. But focus on optimize PMI Barrier may
      * be a better effort.
      */
-    mpi_errno = MPIR_pmi_barrier();
+    CHECK_TIMING(mpi_errno = MPIR_pmi_barrier(), "MPIR_pmi_barrier");
     MPIR_ERR_CHECK(mpi_errno);
 
     bool need_init_builtin_comms = true;
