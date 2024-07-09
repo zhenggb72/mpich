@@ -92,6 +92,16 @@ cvars:
         to prevent remote processes hanging if it has pending communication
         protocols, e.g. a rendezvous send.
 
+    - name        : MPIR_CVAR_CH4_CHECK_TIMING_THRESHOLD
+      category    : DEBUGGER
+      type        : int
+      default     : 1
+      class       : device
+      verbosity   : MPI_T_VERBOSITY_USER_BASIC
+      scope       : MPI_T_SCOPE_LOCAL
+      description : >-
+        Only report timing beyond this threshold
+
 === END_MPI_T_CVAR_INFO_BLOCK ===
 */
 
@@ -138,6 +148,15 @@ int MPIR_Init_impl(int *argc, char ***argv)
     return mpi_errno;
 }
 
+#define CHECK_TIMING(f, str) \
+{ \
+    double t1 = MPI_Wtime(); \
+    f; \
+    double t = MPI_Wtime() - t1; \
+    if (t > MPIR_CVAR_CH4_CHECK_TIMING_THRESHOLD) \
+        fprintf(stderr, "[%d] %s takes: %fs \n", MPIR_Process.rank, str, t); \
+}
+
 int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
                      MPIR_Session ** p_session_ptr)
 {
@@ -170,12 +189,12 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
     MPID_Thread_init(&err);
     MPIR_Assert(err == 0);
 
-    mpi_errno = MPIR_T_env_init();
+    CHECK_TIMING(mpi_errno = MPIR_T_env_init(), "MPIR_T_env_init");
     MPIR_ERR_CHECK(mpi_errno);
 
-    MPIR_Err_init();
-    MPII_pre_init_dbg_logging(argc, argv);
-    MPII_pre_init_memory_tracing();
+    CHECK_TIMING(MPIR_Err_init(), "MPIR_Err_init");
+    CHECK_TIMING(MPII_pre_init_dbg_logging(argc, argv), "MPII_pre_init_dbg_logging");
+    CHECK_TIMING(MPII_pre_init_memory_tracing(), "MPII_pre_init_memory_tracing");
 
 
     /**********************************************************************/
@@ -185,39 +204,42 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
      * other and can be initialized in any order. */
     /**********************************************************************/
 
-    mpi_errno = MPII_init_gpu();
+    CHECK_TIMING(mpi_errno = MPII_init_gpu(), "MPII_init_gpu");
+    if (mpi_errno != MPI_SUCCESS) {
+        fprintf(stderr, "Error in MPII_init_gpu \n");
+    }
     MPIR_ERR_CHECK(mpi_errno);
-    MPIR_context_id_init();
-    MPIR_Typerep_init();
-    MPII_thread_mutex_create();
-    MPII_init_request();
-    mpi_errno = MPIR_pmi_init();
+    CHECK_TIMING(MPIR_context_id_init(), "MPIR_context_id_init");
+    CHECK_TIMING(MPIR_Typerep_init(), "MPIR_Typerep_init");
+    CHECK_TIMING(MPII_thread_mutex_create(), "MPII_thread_mutex_create");
+    CHECK_TIMING(MPII_init_request(), "MPII_init_request");
+    CHECK_TIMING(mpi_errno = MPIR_pmi_init(), "MPIR_pmi_init");
     MPIR_ERR_CHECK(mpi_errno);
-    MPII_hwtopo_init();
-    MPII_nettopo_init();
-    MPII_init_windows();
-    MPII_init_binding_cxx();
+    CHECK_TIMING(MPII_hwtopo_init(), "MPII_hwtopo_init");
+    CHECK_TIMING(MPII_nettopo_init(), "MPII_nettopo_init");
+    CHECK_TIMING(MPII_init_windows(), "MPII_init_windows");
+    CHECK_TIMING(MPII_init_binding_cxx(), "MPII_init_binding_cxx");
 
-    mpi_errno = MPII_init_local_proc_attrs(&required);
-    MPIR_ERR_CHECK(mpi_errno);
-
-    mpi_errno = MPII_init_builtin_infos(argc, argv);
-    MPIR_ERR_CHECK(mpi_errno);
-
-    mpi_errno = MPII_Coll_init();
+    CHECK_TIMING(mpi_errno = MPII_init_local_proc_attrs(&required), "MPII_init_local_proc_attrs");
     MPIR_ERR_CHECK(mpi_errno);
 
-    mpi_errno = MPIR_Group_init();
+    CHECK_TIMING(mpi_errno = MPII_init_builtin_infos(argc, argv), "MPII_init_builtin_infos");
     MPIR_ERR_CHECK(mpi_errno);
 
-    mpi_errno = MPIR_Datatype_init_predefined();
+    CHECK_TIMING(mpi_errno = MPII_Coll_init(), "MPII_Coll_init");
     MPIR_ERR_CHECK(mpi_errno);
 
-    mpi_errno = MPIR_Async_things_init();
+    CHECK_TIMING(mpi_errno = MPIR_Group_init(), "MPIR_Group_init");
+    MPIR_ERR_CHECK(mpi_errno);
+
+    CHECK_TIMING(mpi_errno = MPIR_Datatype_init_predefined(), "MPIR_Datatype_init_predefined");
+    MPIR_ERR_CHECK(mpi_errno);
+
+    CHECK_TIMING(mpi_errno = MPIR_Async_things_init(), "MPIR_Async_things_init");
     MPIR_ERR_CHECK(mpi_errno);
 
     if (MPIR_CVAR_DEBUG_HOLD) {
-        MPII_debugger_hold();
+        CHECK_TIMING(MPII_debugger_hold(), "MPII_debugger_hold");
     }
 
 
@@ -226,7 +248,7 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
      * handling routines that core services are available. */
     /**********************************************************************/
 
-    MPL_atomic_store_int(&MPIR_Process.mpich_state, MPICH_MPI_STATE__MPIR_INITIALIZED);
+    CHECK_TIMING(MPL_atomic_store_int(&MPIR_Process.mpich_state, MPICH_MPI_STATE__MPIR_INITIALIZED), "MPL_atomic_store_int");
 
 
     /**********************************************************************/
@@ -241,7 +263,10 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
     MPIR_ThreadInfo.isThreaded = 0;
 #endif
 
-    mpi_errno = MPID_Init(required, &MPIR_ThreadInfo.thread_provided);
+    CHECK_TIMING(mpi_errno = MPID_Init(required, &MPIR_ThreadInfo.thread_provided), "MPID_Init");
+    if (mpi_errno != MPI_SUCCESS) {
+        fprintf(stderr, "Error in MPID_Init \n");
+    }
     MPIR_ERR_CHECK(mpi_errno);
 
     /* The current default mechanism of MPIR Process Acquisition Interface is to
@@ -256,7 +281,7 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
      * add a config option to skip it. But focus on optimize PMI Barrier may
      * be a better effort.
      */
-    mpi_errno = MPIR_pmi_barrier();
+    CHECK_TIMING(mpi_errno = MPIR_pmi_barrier(), "MPIR_pmi_barrier");
     MPIR_ERR_CHECK(mpi_errno);
 
     bool need_init_builtin_comms = true;
@@ -264,14 +289,14 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
     need_init_builtin_comms = is_world_model;
 #endif
     if (need_init_builtin_comms) {
-        mpi_errno = MPIR_init_comm_world();
+        CHECK_TIMING(mpi_errno = MPIR_init_comm_world(), "MPIR_init_comm_world");
         MPIR_ERR_CHECK(mpi_errno);
 
-        mpi_errno = MPIR_init_comm_self();
+        CHECK_TIMING(mpi_errno = MPIR_init_comm_self(), "MPIR_init_comm_self");
         MPIR_ERR_CHECK(mpi_errno);
 
 #ifdef MPID_NEEDS_ICOMM_WORLD
-        mpi_errno = MPIR_init_icomm_world();
+        CHECK_TIMING(mpi_errno = MPIR_init_icomm_world(), "MPIR_init_icomm_world");
         MPIR_ERR_CHECK(mpi_errno);
 #endif
     }
@@ -285,21 +310,21 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
     /**********************************************************************/
 
     /* MPIR_Process.attr.tag_ub depends on tag_bits set by the device */
-    mpi_errno = MPII_init_tag_ub();
+    CHECK_TIMING(mpi_errno = MPII_init_tag_ub(), "MPII_init_tag_ub");
     MPIR_ERR_CHECK(mpi_errno);
 
     /* pairtypes might need device hooks to be activated so the device
      * can keep track of their creation.  that's why we need to do
      * this after the device initialization.  */
-    mpi_errno = MPIR_Datatype_commit_pairtypes();
+    CHECK_TIMING(mpi_errno = MPIR_Datatype_commit_pairtypes(), "MPIR_Datatype_commit_pairtypes");
     MPIR_ERR_CHECK(mpi_errno);
 
-    MPII_post_init_memory_tracing();
-    MPII_init_dbg_logging();
-    MPII_Wait_for_debugger();
+    CHECK_TIMING(MPII_post_init_memory_tracing(), "MPII_post_init_memory_tracing");
+    CHECK_TIMING(MPII_init_dbg_logging(), "MPII_init_dbg_logging");
+    CHECK_TIMING(MPII_Wait_for_debugger(), "MPII_Wait_for_debugger");
 
     if (MPIR_CVAR_DEBUG_SUMMARY && MPIR_Process.rank == 0) {
-        MPII_dump_debug_summary();
+        CHECK_TIMING(MPII_dump_debug_summary(), "MPII_dump_debug_summary");
     }
 
     /**********************************************************************/
@@ -309,14 +334,14 @@ int MPII_Init_thread(int *argc, char ***argv, int user_required, int *provided,
     /**********************************************************************/
 
     if (is_world_model) {
-        mpi_errno = MPIR_nodeid_init();
+        CHECK_TIMING(mpi_errno = MPIR_nodeid_init(), "MPIR_nodeid_init");
         MPIR_ERR_CHECK(mpi_errno);
 
-        mpi_errno = MPID_InitCompleted();
+        CHECK_TIMING(mpi_errno = MPID_InitCompleted(), "MPID_InitCompleted");
         MPIR_ERR_CHECK(mpi_errno);
     }
 
-    MPL_atomic_store_int(&MPIR_Process.mpich_state, MPICH_MPI_STATE__INITIALIZED);
+    CHECK_TIMING(MPL_atomic_store_int(&MPIR_Process.mpich_state, MPICH_MPI_STATE__INITIALIZED), "MPL_atomic_store_int");
 
 
     /**********************************************************************/

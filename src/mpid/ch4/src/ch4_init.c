@@ -412,6 +412,7 @@ int MPID_Init(int requested, int *provided)
 {
     int mpi_errno = MPI_SUCCESS;
     char strerrbuf[MPIR_STRERROR_BUF_SIZE] ATTRIBUTE((unused));
+    double t;
 
     MPIR_FUNC_ENTER;
 
@@ -536,6 +537,7 @@ int MPID_Init(int requested, int *provided)
     /* internally does per-vci am initialization */
     MPIDIG_am_init();
 
+    t = MPI_Wtime();
     /* **** Call NM/SHM init_local **** */
     int shm_tag_bits, nm_tag_bits;
     shm_tag_bits = MPIR_TAG_BITS_DEFAULT;
@@ -547,11 +549,19 @@ int MPID_Init(int requested, int *provided)
         MPIR_ERR_POPFATAL(mpi_errno);
     }
 #endif
+    t = MPI_Wtime() - t;
+    if (t > MPIR_CVAR_CH4_CHECK_TIMING_THRESHOLD)
+        fprintf(stderr, "[%d] MPID-%s takes: %fs \n", MPIR_Process.rank, "MPIDI_SHM_init_local", t);
 
+
+    t = MPI_Wtime();
     mpi_errno = MPIDI_NM_init_local(&nm_tag_bits);
     if (mpi_errno != MPI_SUCCESS) {
         MPIR_ERR_POPFATAL(mpi_errno);
     }
+    t = MPI_Wtime() - t;
+    if (t > MPIR_CVAR_CH4_CHECK_TIMING_THRESHOLD)
+        fprintf(stderr, "[%d] MPID-%s takes: %fs \n", MPIR_Process.rank, "MPIDI_NM_init_local", t);
 
     /* Use the minimum tag_bits from the netmod and shmod */
     MPIR_Process.tag_bits = MPL_MIN(shm_tag_bits, nm_tag_bits);
@@ -563,6 +573,7 @@ int MPID_Init(int requested, int *provided)
     MPIDIG_am_check_init();
 
     /* Initialize collective selection */
+    t = MPI_Wtime();
     if (!strcmp(MPIR_CVAR_CH4_COLL_SELECTION_TUNING_JSON_FILE, "")) {
         mpi_errno = MPIR_Csel_create_from_buf(MPIDI_coll_generic_json,
                                               create_container, &MPIDI_global.csel_root);
@@ -571,6 +582,9 @@ int MPID_Init(int requested, int *provided)
                                                create_container, &MPIDI_global.csel_root);
     }
     MPIR_ERR_CHECK(mpi_errno);
+    t = MPI_Wtime() - t;
+    if (t > MPIR_CVAR_CH4_CHECK_TIMING_THRESHOLD)
+        fprintf(stderr, "[%d] MPID-%s takes: %fs \n", MPIR_Process.rank, "MPIR_Csel_create_from_", t);
 
     /* Override split_type */
     MPIDI_global.MPIR_Comm_fns_store.split_type = MPIDI_Comm_split_type;

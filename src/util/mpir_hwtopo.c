@@ -217,9 +217,12 @@ int MPII_hwtopo_init(void)
     }
 
     hwloc_topology_set_io_types_filter(hwloc_topology, HWLOC_TYPE_FILTER_KEEP_ALL);
-    if (!hwloc_topology_load(hwloc_topology))
+#if 1
+    int status = hwloc_topology_load(hwloc_topology);
+    if (!status)
         bindset_is_valid =
             !hwloc_get_proc_cpubind(hwloc_topology, getpid(), bindset, HWLOC_CPUBIND_PROCESS);
+#endif
 #endif
 
     return mpi_errno;
